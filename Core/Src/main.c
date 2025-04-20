@@ -46,9 +46,10 @@ extern unsigned char fondo_mario_nivel_2[];
 uint8_t buffer_control_1[2];
 //-----------------------------------------------------------------------------
 //--------------- Variables relacionadas con Verticlidad de Mario--------------
-uint16_t posicion_y_mario = 196;
+uint16_t posicion_y_mario = 100;
 uint8_t salta_mario = 0;
 float velocidad_y_mario = 0.0f;
+uint8_t mario_suelo;
 //-----------------------------------------------------------------------------
 //---------------------Variables para ambos jugadores--------------------------
 float gravedad = 0.01f;
@@ -108,6 +109,9 @@ static void animacion_bloques_amarillos(void);
 void cargar_colisiones_etapa_0(void);
 uint8_t detectar_colision_mapa(uint16_t x, uint16_t y, char direccion,
 		uint8_t *col_y, uint8_t *col_x);
+uint8_t mario_tiene_suelo(void);
+void dibujar_mario_chiquito_en_tierra(void);
+uint8_t mario_cae_sobre_bloque(uint8_t col_y, uint8_t col_x);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -117,61 +121,89 @@ void escribir_terminal(char *string) {
 	HAL_UART_Transmit(&huart2, string, largo, 200);
 }
 static void Funciones_mario_chiquito(void) {
-	if (derecha_mario == 1) {
-		uint8_t cx, cy;
-		if (detectar_colision_mapa(posicion_x_mario + 20, posicion_y_mario + 5,
-				'H', &cy, &cx) != 1) {
-			derecha_mario = 2;
+	mario_suelo = mario_tiene_suelo();
+
+	// Movimiento horizontal
+	if (derecha_mario == 1) {  // Mover a la derecha
+
+		uint8_t cx1, cy1, cx2, cy2;
+		uint8_t col1 = detectar_colision_mapa(posicion_x_mario + 20, posicion_y_mario + 5, 'H', &cy1, &cx1);
+		uint8_t col2 = detectar_colision_mapa(posicion_x_mario + 20, posicion_y_mario + 15, 'H', &cy2, &cx2);
+
+		if (col1 != 1 && col2 != 1) {
 			posicion_x_mario++;
 		}
-		animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
-		LCD_Sprite(posicion_x_mario, posicion_y_mario, 20, 19,
-				mario_corriendo_nivel_2, 4, animacion_mario_corriendo, 0, 0);
+
+		if (!salta_mario) {
+			animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
+			uint8_t flip = (derecha_mario == 0) ? 1 : 0;
+			LCD_Sprite(posicion_x_mario, posicion_y_mario+-5 , 20, 19,
+			           mario_corriendo_nivel_2, 4, animacion_mario_corriendo,
+			           flip, 0);
+		}
+		derecha_mario = 2;
 	}
 
-	if (derecha_mario == 0) {
-		uint8_t cx, cy;
-		if (detectar_colision_mapa(posicion_x_mario - 1, posicion_y_mario + 5,
-				'H', &cy, &cx) != 1) {
-			derecha_mario = 2;
+	if (derecha_mario == 0) {  // Mover a la izquierda
+
+		uint8_t cx1, cy1, cx2, cy2;
+		uint8_t col1 = detectar_colision_mapa(posicion_x_mario - 1, posicion_y_mario + 5, 'H', &cy1, &cx1);
+		uint8_t col2 = detectar_colision_mapa(posicion_x_mario - 1, posicion_y_mario + 15, 'H', &cy2, &cx2);
+
+		if (col1 != 1 && col2 != 1) {
 			posicion_x_mario--;
 		}
-		animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
-		LCD_Sprite(posicion_x_mario, posicion_y_mario, 20, 19,
-				mario_corriendo_nivel_2, 4, animacion_mario_corriendo, 1, 0);
+
+		if (!salta_mario) {
+			animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
+			uint8_t flip = (derecha_mario == 0) ? 1 : 0;
+			LCD_Sprite(posicion_x_mario, posicion_y_mario+-5 , 20, 19,
+			           mario_corriendo_nivel_2, 4, animacion_mario_corriendo,
+			           flip, 0);
+		}
+		derecha_mario = 2;
 	}
+
+	// Movimiento vertical (salto o caída)
 	if (salta_mario) {
 		posicion_y_mario += velocidad_y_mario;
 		velocidad_y_mario += gravedad;
 
-		// 👉 NUEVO: Verificación de colisión desde arriba (Mario cayendo)
+		// Verificación de colisión desde arriba (cayendo)
 		if (velocidad_y_mario > 0) {
 			Bandera_colision = detectar_colision_mapa(posicion_x_mario + 10,
-			                                           posicion_y_mario + 25,
+			                                           posicion_y_mario + 20,
 			                                           'V', &BloqueY_colision, &BloqueX_colision);
 			if (Bandera_colision == 2) {
+				// 🟩 Detener caída y ajustar posición
 				velocidad_y_mario = 0;
 				salta_mario = 0;
-				posicion_y_mario = BloqueY_colision * 15 - 19; // ajuste de altura para Mario chiquito (19 px de alto)
+				posicion_y_mario = BloqueY_colision * 15 - 17;
+
+				// 🧽 Primero borrás donde estaba la cabeza
+				LCD_Sprite(posicion_x_mario, posicion_y_mario - 10, 16, 10,
+				           negro, 1, 0, 0, 0);
+
+				// ✅ Luego dibujás a Mario con el ajuste visual
+				animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
+				uint8_t flip = (derecha_mario == 0) ? 1 : 0;
+				LCD_Sprite(posicion_x_mario, posicion_y_mario+-5 , 20, 19,
+				           mario_corriendo_nivel_2, 4, animacion_mario_corriendo,
+				           flip, 0);
 			}
 		}
 
-		if (posicion_y_mario >= 195) {
-			posicion_y_mario = 195;
-			velocidad_y_mario = 0;
-			salta_mario = 0;
-		}
-
+		// Verificación de colisión desde abajo (golpeando bloques)
 		if (velocidad_y_mario < 0) {
-			Bandera_colision = detectar_colision_mapa(posicion_x_mario + 10,
-					posicion_y_mario - 10, 'V', &BloqueY_colision,
-					&BloqueX_colision);
+			Bandera_colision = detectar_colision_mapa(posicion_x_mario + 15,
+			                                           posicion_y_mario - 7,
+			                                           'V', &BloqueY_colision, &BloqueX_colision);
 			if (Bandera_colision == 2) {
 				velocidad_y_mario = 0;
-				posicion_y_mario += 2; // empuja a Mario ligeramente hacia abajo
-				salta_mario = 1;        // deja que siga cayendo
-				uint8_t idx = BloqueX_colision - 10;
+				posicion_y_mario += 2;
+				salta_mario = 1;
 
+				uint8_t idx = BloqueX_colision - 10;
 				if (idx < 5 && bloque_desactivado[idx] == 0) {
 					contador_animacion_bloque[idx] = 0;
 					bloque_animando[idx] = 1;
@@ -179,80 +211,123 @@ static void Funciones_mario_chiquito(void) {
 			}
 		}
 
-		//LCD_Sprite(x, y, width, height, bitmap, columns, index, flip, offset)
-		if (posicion_y_mario <= 195 && velocidad_y_mario != 0) {
-			LCD_Sprite(posicion_x_mario, posicion_y_mario, 20, 19,
-					mario_saltando_nivel_2, 1, 0, 0, 0);
-		} else {
-			LCD_Sprite(posicion_x_mario, posicion_y_mario, 20, 19,
-					mario_corriendo_nivel_2, 4, 1, 0, 0);
+		// Mostrar sprite de salto
+		if (velocidad_y_mario != 0) {
+			LCD_Sprite(posicion_x_mario, posicion_y_mario-5, 20, 19,
+			           mario_saltando_nivel_2, 1, 0, 0, 0);
 		}
+	}
 
+	// Si no hay suelo debajo, empieza a caer
+	if (!salta_mario && !mario_suelo) {
+		salta_mario = 1;
+		velocidad_y_mario = 0.1f;
 	}
 }
-
 static void Funciones_mario_grande(void) {
+	mario_suelo = mario_tiene_suelo();
+
+	// Movimiento horizontal + animación
 	if (derecha_mario == 1) {
-		uint8_t cx, cy;
-		if (detectar_colision_mapa(posicion_x_mario + 20, posicion_y_mario + 5,
-				'H', &cy, &cx) != 1) {
-			derecha_mario = 2;
+		uint8_t cx1, cy1, cx2, cy2;
+		uint8_t col1 = detectar_colision_mapa(posicion_x_mario + 20, posicion_y_mario - 10, 'H', &cy1, &cx1);
+		uint8_t col2 = detectar_colision_mapa(posicion_x_mario + 20, posicion_y_mario + 5,  'H', &cy2, &cx2);
+
+		if (col1 != 1 && col2 != 1) {
 			posicion_x_mario++;
 		}
-		animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
-		LCD_Sprite(posicion_x_mario, posicion_y_mario - 15, 20, 34,
-				mario_corriendo_grande_nivel_2, 4, animacion_mario_corriendo, 0,
-				0);
+
+		if (!salta_mario) {
+			animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
+			LCD_Sprite(posicion_x_mario, posicion_y_mario -5, 20, 34,
+			           mario_corriendo_grande_nivel_2, 4, animacion_mario_corriendo,
+			           0, 0);
+		}
+		derecha_mario = 2;
 	}
 
 	if (derecha_mario == 0) {
-		uint8_t cx, cy;
-		if (detectar_colision_mapa(posicion_x_mario - 1, posicion_y_mario + 5,
-				'H', &cy, &cx) != 1) {
-			derecha_mario = 2;
+		uint8_t cx1, cy1, cx2, cy2;
+		uint8_t col1 = detectar_colision_mapa(posicion_x_mario - 1, posicion_y_mario - 10, 'H', &cy1, &cx1);
+		uint8_t col2 = detectar_colision_mapa(posicion_x_mario - 1, posicion_y_mario + 5,  'H', &cy2, &cx2);
+
+		if (col1 != 1 && col2 != 1) {
 			posicion_x_mario--;
 		}
-		animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
-		LCD_Sprite(posicion_x_mario, posicion_y_mario - 15, 20, 34,
-				mario_corriendo_grande_nivel_2, 4, animacion_mario_corriendo, 1,
-				0);
+
+		if (!salta_mario) {
+			animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
+			LCD_Sprite(posicion_x_mario, posicion_y_mario -5, 20, 34,
+			           mario_corriendo_grande_nivel_2, 4, animacion_mario_corriendo,
+			           1, 0);
+		}
+		derecha_mario = 2;
 	}
 
+	// Movimiento vertical (salto o caída)
 	if (salta_mario) {
 		posicion_y_mario += velocidad_y_mario;
 		velocidad_y_mario += gravedad;
 
+		// Caída sobre bloque
+		if (velocidad_y_mario > 0) {
+			Bandera_colision = detectar_colision_mapa(posicion_x_mario + 10,
+			                                           posicion_y_mario + 32,
+			                                           'V', &BloqueY_colision, &BloqueX_colision);
+			if (Bandera_colision == 2) {
+				velocidad_y_mario = 0;
+				salta_mario = 0;
+				posicion_y_mario = BloqueY_colision * 15 - 32;
+
+				// 🧽 Borrar cabeza vieja
+				LCD_Sprite(posicion_x_mario, posicion_y_mario - 10, 16, 10,
+				           negro, 1, 0, 0, 0);
+
+				animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
+				uint8_t flip = (derecha_mario == 0) ? 1 : 0;
+
+				LCD_Sprite(posicion_x_mario, posicion_y_mario-5 , 20, 34,
+				           mario_corriendo_grande_nivel_2, 4, animacion_mario_corriendo,
+				           flip, 0);
+			}
+		}
+
+		// Límite inferior
 		if (posicion_y_mario >= 195) {
 			posicion_y_mario = 195;
 			velocidad_y_mario = 0;
 			salta_mario = 0;
 		}
 
+		// Colisión desde abajo (golpeando bloques)
 		if (velocidad_y_mario < 0) {
-			Bandera_colision = detectar_colision_mapa(posicion_x_mario + 10,
-					posicion_y_mario - 23, 'V', &BloqueY_colision,
-					&BloqueX_colision);
+			Bandera_colision = detectar_colision_mapa(posicion_x_mario + 15,
+			                                           posicion_y_mario ,
+			                                           'V', &BloqueY_colision, &BloqueX_colision);
 			if (Bandera_colision == 2) {
 				velocidad_y_mario = 0;
-				posicion_y_mario += 4;
+				posicion_y_mario += 2;
 				salta_mario = 1;
 				velocidad_y_mario = 1.0f;
+
 				uint8_t idx = BloqueX_colision - 10;
-					if (idx < 5 && bloque_desactivado[idx] == 0) {
-						bloque_animando[idx] = 1;
-						contador_animacion_bloque[idx] = 0;
-					}
+				if (idx < 5 && bloque_desactivado[idx] == 0) {
+					bloque_animando[idx] = 1;
+					contador_animacion_bloque[idx] = 0;
+				}
 			}
 		}
 
-		// Mostrar sprite según salto o carrera
 		if (posicion_y_mario <= 195 && velocidad_y_mario != 0) {
-			LCD_Sprite(posicion_x_mario, posicion_y_mario - 15, 20, 34,
-					mario_saltando_grande_nivel_2, 1, 0, 0, 0);
-		} else {
-			LCD_Sprite(posicion_x_mario, posicion_y_mario - 15, 20, 34,
-					mario_corriendo_grande_nivel_2, 4, 1, 0, 0);
+			LCD_Sprite(posicion_x_mario, posicion_y_mario-5, 20, 34,
+			           mario_saltando_grande_nivel_2, 1, 0, 0, 0);
 		}
+	}
+
+	// Caída automática si no hay suelo
+	if (!salta_mario && !mario_suelo) {
+		salta_mario = 1;
+		velocidad_y_mario = 0.1f;
 	}
 }
 void Nivel(uint8_t nivel) {
@@ -264,7 +339,7 @@ void Nivel(uint8_t nivel) {
 	}
 }
 static void Primer_pantalla_segundo_nivel(void) {
-	LCD_Bitmap(0, 0, 320, 240, fondo_mario_nivel_2);
+	//LCD_Bitmap(0, 0, 320, 240, fondo_mario_nivel_2);
 	LCD_Sprite(posicion_x_mario, posicion_y_mario, 20, 19,
 			mario_corriendo_nivel_2, 4, animacion_mario_corriendo, 0, 0);
 	for (uint8_t i = 0; i < 14; i++) { // 240 / 15 = 16 bloques
@@ -277,9 +352,19 @@ static void Primer_pantalla_segundo_nivel(void) {
 	}
 	for (uint8_t i = 0; i < 5; i++) { // 240 / 15 = 16 bloques
 		uint16_t x_bloque = i * 15 + 150;
-		LCD_Sprite(x_bloque, 160, 16, 16, Bloque_amarillo_misterioso_nivel_2, 3,
+		LCD_Sprite(x_bloque, 150, 16, 16, Bloque_amarillo_misterioso_nivel_2, 3,
 				0, 0, 0); // suponiendo que bloque es tu sprite de bloque
 	}
+	for(uint8_t i = 0;i<20; i++ ){
+		uint16_t x_bloque = i * 16;
+		LCD_Sprite(x_bloque, 208, 16, 16, bloque_piso, 1,
+						1, 0, 0);
+	}
+	for(uint8_t i = 0;i<20; i++ ){
+			uint16_t x_bloque = i * 16;
+			LCD_Sprite(x_bloque, 224, 16, 16, bloque_piso, 1,
+							1, 0, 0);
+		}
 	cargar_colisiones_etapa_0();
 
 }
@@ -291,19 +376,19 @@ static void animacion_bloques_amarillos(void) {
 			if (bloque_desactivado[i] == 0) {
 				if (bloque_animando[i]) {
 					// Mostrar el frame actual sin sumarlo aquí
-					LCD_Sprite(x_bloque, 154, 15, 22,
+					LCD_Sprite(x_bloque, 154-10, 15, 22,
 					           Bloque_amarillo_misterioso_rompiendose_nivel_2, 3,
 					           contador_animacion_bloque[i], 0, 0);
 				} else {
 					// Animación normal
-					LCD_Sprite(x_bloque, 160, 16, 16,
+					LCD_Sprite(x_bloque, 150, 16, 16,
 					           Bloque_amarillo_misterioso_nivel_2, 3,
 					           Estado_bloques_animacion, 0, 0);
 				}
 			} else {
 				// Mostrar sprite apagado
 				//LCD_Sprite(x, y, width, height, bitmap, columns, index, flip, offset)
-				LCD_Sprite(x_bloque, 154, 16, 22,
+				LCD_Sprite(x_bloque, 154-10, 16, 22,
 				           Bloque_amarillo_misterioso_rompiendose_nivel_2, 3, 2, 0, 0);
 			}
 		}
@@ -322,7 +407,11 @@ void cargar_colisiones_etapa_0(void) {
 
 	// Bloques misteriosos
 	for (uint8_t i = 0; i < 5; i++)
-		mapa_colision[160 / 15][(i * 15 + 150) / 15] = 1;
+		mapa_colision[150 / 15][(i * 15 + 150) / 15] = 1;
+	// Piso colisiones
+	for(uint8_t i = 0;i<22; i++ ){
+			mapa_colision[14][i] = 1;
+		}
 }
 uint8_t detectar_colision_mapa(uint16_t x, uint16_t y, char direccion,
 		uint8_t *col_y, uint8_t *col_x) {
@@ -346,6 +435,16 @@ uint8_t detectar_colision_mapa(uint16_t x, uint16_t y, char direccion,
 		return 0;
 	}
 }
+uint8_t mario_tiene_suelo(void) {
+	uint8_t col_x, col_y;
+	uint8_t offset_suelo = (estado_mario == 0) ? 20 : 32; // más abajo si Mario es grande
+
+	uint8_t resultado = detectar_colision_mapa(posicion_x_mario + 10,
+	                                           posicion_y_mario + offset_suelo,
+	                                           'V', &col_y, &col_x);
+	return resultado == 2;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -633,7 +732,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	}
 	if (buffer_control_1[0] == 'J' && salta_mario != 1) {
 		salta_mario = 1;
-		velocidad_y_mario = -0.60f;
+		velocidad_y_mario = -1.0f;
 	}
 }
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
