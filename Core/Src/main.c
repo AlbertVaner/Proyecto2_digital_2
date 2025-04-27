@@ -48,6 +48,9 @@ uint8_t buffer_control_1[2];
 //-----------------------------------------------------------------------------
 //---------------------Variables para ambos jugadores--------------------------
 float gravedad = 0.01f;
+uint8_t bandera_jugador1;
+uint8_t bandera_jugador2;
+
 //-----------------------------------------------------------------------------
 //--------------- Variables relacionadas con Verticlidad de Mario--------------
 uint16_t posicion_y_mario = 100;
@@ -74,9 +77,11 @@ uint8_t animacion_luigi_corriendo;
 //--------------Variables relacionadas con la vida interna de mario------------
 uint8_t estado_mario = 0;
 uint8_t estado_luigi = 1;
+uint8_t bandera_muerte1=1;
+uint8_t bandera_muerte2=1;
 //-----------------------------------------------------------------------------
 //-------------Variables ralcionadas con el nivel y la etapa-------------------
-uint8_t nivel;
+uint8_t nivel = 1;
 uint8_t estado_nivel;
 uint8_t bandera_estado_nivel;
 #define MAPA_ANCHO  21  // 320 / 15
@@ -85,7 +90,9 @@ uint8_t mapa_colision[MAPA_ALTO][MAPA_ANCHO];
 //-----------------------------------------------------------------------------
 //--------------------Variables relacionadas con el entorno--------------------
 uint8_t Estado_bloques_animacion;
+uint8_t Estado_monedas_animacion;
 uint8_t bandera_recargar_bloques;
+uint8_t bandera_recargar_monedas;
 uint8_t Bandera_colision;
 uint8_t BloqueX_colision;
 uint8_t BloqueY_colision;
@@ -108,6 +115,30 @@ Goomba goombas[MAX_GOOMBAS];
 uint8_t num_goombas_activos = 0;   // cuántos están activos según la etapa
 uint8_t animacion_gumba = 0; // frame global de animación (si todos animan igual)
 uint8_t bandera_mover_gumba = 0;   // se activa desde interrupción del timer
+//-----------------------------------------------------------------------------
+//--------------------Variables relacionadas con las monedas-------------------
+#define MAX_MONEDAS 10
+
+typedef struct {
+	uint16_t x;
+	uint16_t y;
+	uint8_t activa;  // 1 = visible, 0 = recogida
+} Moneda;
+
+Moneda monedas[MAX_MONEDAS];
+#define MAX_BLOQUES_AMARILLOS 10
+
+typedef struct {
+	uint16_t x;
+	uint8_t y;
+	uint8_t activo;         // 1 si existe y puede colisionarse
+	uint8_t animando;       // 1 si se está rompiendo
+	uint8_t frame_anim;     // frame actual (0, 1, 2)
+	uint8_t evento_disparado;
+} BloqueAmarillo;
+
+BloqueAmarillo bloques_amarillos[MAX_BLOQUES_AMARILLOS];
+
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -130,25 +161,36 @@ static void MX_SPI1_Init(void);
 static void MX_TIM6_Init(void);
 static void MX_TIM7_Init(void);
 /* USER CODE BEGIN PFP */
-
+//-----------------------------------------------------------------------------
+//--------------------Funciones  relacionadas con movimientos------------------
 static void Funciones_mario_chiquito(void);
 static void Funciones_mario_grande(void);
 static void Funciones_luigi_chiquito(void);
 static void Funciones_luigi_grande(void);
+static void Funciones_goombas(void);
+//-----------------------------------------------------------------------------
+//--------------------Funciones  relacionadas con crear etapa------------------
 void Nivel(uint8_t nivel);
 static void Primer_pantalla_segundo_nivel(void);
+static void dibujar_monedas(void);
 static void animacion_bloques_amarillos(void);
+void configurar_monedas(const uint16_t posiciones[][2], uint8_t cantidad);
+void configurar_bloques_amarillos(const uint16_t posiciones[][2],uint8_t cantidad);
+void configurar_goombas(const uint16_t posiciones[][2], uint8_t cantidad);
+
+//-----------------------------------------------------------------------------
+//--------------------Funciones  relacionadas con colisones--------------------
 void cargar_colisiones_etapa_0(void);
-uint8_t detectar_colision_mapa(uint16_t x, uint16_t y, char direccion,
-		uint8_t *col_y, uint8_t *col_x);
+void registrar_colisiones_bloques_amarillos(void);
+uint8_t detectar_colision_mapa(uint16_t x, uint16_t y, char direccion,uint8_t *col_y, uint8_t *col_x);
 uint8_t mario_tiene_suelo(void);
 uint8_t luigi_tiene_suelo(void);
-void dibujar_mario_chiquito_en_tierra(void);
 uint8_t mario_cae_sobre_bloque(uint8_t col_y, uint8_t col_x);
-uint8_t hay_colision_entre_jugadores(uint16_t x1, uint16_t y1, uint8_t w1,
-		uint8_t h1, uint16_t x2, uint16_t y2, uint8_t w2, uint8_t h2);
-uint8_t jugador_sobre_otro(uint16_t x1, uint16_t y1, uint8_t w1, uint8_t h1,
-		uint16_t x2, uint16_t y2, uint8_t w2, uint8_t h2);
+uint8_t hay_colision_entre_jugadores(uint16_t x1, uint16_t y1, uint8_t w1,uint8_t h1, uint16_t x2, uint16_t y2, uint8_t w2, uint8_t h2);
+uint8_t jugador_sobre_otro(uint16_t x1, uint16_t y1, uint8_t w1, uint8_t h1,uint16_t x2, uint16_t y2, uint8_t w2, uint8_t h2);
+
+
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -157,165 +199,40 @@ void escribir_terminal(char *string) {
 	uint8_t largo = strlen(string);
 	HAL_UART_Transmit(&huart2, string, largo, 200);
 }
+//-----------------------------------------------------------------------------
+//--------------------Funciones  relacionadas con movimientos------------------
 static void Funciones_mario_chiquito(void) {
 	mario_suelo = mario_tiene_suelo();
 
 	// Movimiento horizontal
-	if (derecha_mario == 1) {  // Mover a la derecha
-
-		uint8_t cx1, cy1, cx2, cy2;
-		uint8_t col1 = detectar_colision_mapa(posicion_x_mario + 20,
-				posicion_y_mario + 5, 'H', &cy1, &cx1);
-		uint8_t col2 = detectar_colision_mapa(posicion_x_mario + 20,
-				posicion_y_mario + 15, 'H', &cy2, &cx2);
-
-		uint8_t colision_con_luigi = hay_colision_entre_jugadores(
-				posicion_x_mario + 1, posicion_y_mario, 20, 19,
-				posicion_x_luigi, posicion_y_luigi, 20, 19);
-
-		if (col1 != 1 && col2 != 1 && colision_con_luigi == 0) {
-			posicion_x_mario++;
-		}
-
-		if (!salta_mario) {
-			animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
-			uint8_t flip = (derecha_mario == 0) ? 1 : 0;
-			LCD_Sprite(posicion_x_mario, posicion_y_mario + -5, 20, 19,
-					mario_corriendo_nivel_2, 4, animacion_mario_corriendo, flip,
-					0);
-		}
-		derecha_mario = 2;
-	}
-
-	if (derecha_mario == 0) {  // Mover a la izquierda
-
-		uint8_t cx1, cy1, cx2, cy2;
-		uint8_t col1 = detectar_colision_mapa(posicion_x_mario - 1,
-				posicion_y_mario + 5, 'H', &cy1, &cx1);
-		uint8_t col2 = detectar_colision_mapa(posicion_x_mario - 1,
-				posicion_y_mario + 15, 'H', &cy2, &cx2);
-		uint8_t colision_con_luigi = hay_colision_entre_jugadores(
-				posicion_x_mario + 1, posicion_y_mario, 20, 19,
-				posicion_x_luigi, posicion_y_luigi, 20, 19);
-		if (col1 != 1 && col2 != 1 && colision_con_luigi == 0) {
-			posicion_x_mario--;
-		}
-
-		if (!salta_mario) {
-			animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
-			uint8_t flip = (derecha_mario == 0) ? 1 : 0;
-			LCD_Sprite(posicion_x_mario, posicion_y_mario + -5, 20, 19,
-					mario_corriendo_nivel_2, 4, animacion_mario_corriendo, flip,
-					0);
-		}
-		derecha_mario = 2;
-	}
-	if (jugador_sobre_otro(posicion_x_mario, posicion_y_mario, 20, 19,  // Mario chico
-	                       posicion_x_luigi, posicion_y_luigi, 20, 34)) { // Luigi grande
-		velocidad_y_mario = 0;
-		salta_mario = 0;
-		posicion_y_mario = posicion_y_luigi - 19;
-
-		LCD_Sprite(posicion_x_mario, posicion_y_mario - 10, 16, 10, negro, 1, 0, 0, 0);
-		LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 19,
-		           mario_corriendo_nivel_2, 4, animacion_mario_corriendo,
-		           (derecha_mario == 0 ? 1 : 0), 0);
-	}
-	// Movimiento vertical (salto o caída)
-	if (salta_mario) {
-		posicion_y_mario += velocidad_y_mario;
-		velocidad_y_mario += gravedad;
-
-		// Verificación de colisión desde arriba (cayendo)
-		if (velocidad_y_mario > 0) {
-			Bandera_colision = detectar_colision_mapa(posicion_x_mario + 10,
-					posicion_y_mario + 20, 'V', &BloqueY_colision,
-					&BloqueX_colision);
-			if (Bandera_colision == 2) {
-				// 🟩 Detener caída y ajustar posición
-				velocidad_y_mario = 0;
-				salta_mario = 0;
-				posicion_y_mario = BloqueY_colision * 15 - 17;
-
-				// 🧽 Primero borrás donde estaba la cabeza
-				LCD_Sprite(posicion_x_mario, posicion_y_mario - 10, 16, 10,
-						negro, 1, 0, 0, 0);
-
-				// ✅ Luego dibujás a Mario con el ajuste visual
-				animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
-				uint8_t flip = (derecha_mario == 0) ? 1 : 0;
-				LCD_Sprite(posicion_x_mario, posicion_y_mario + -5, 20, 19,
-						mario_corriendo_nivel_2, 4, animacion_mario_corriendo,
-						flip, 0);
-			}
-		}
-
-		// Verificación de colisión desde abajo (golpeando bloques)
-		if (velocidad_y_mario < 0) {
-			Bandera_colision = detectar_colision_mapa(posicion_x_mario + 15,
-					posicion_y_mario - 7, 'V', &BloqueY_colision,
-					&BloqueX_colision);
-			if (Bandera_colision == 2) {
-				velocidad_y_mario = 0;
-				posicion_y_mario += 2;
-				salta_mario = 1;
-
-				uint8_t idx = BloqueX_colision - 10;
-				if (idx < 5 && bloque_desactivado[idx] == 0) {
-					contador_animacion_bloque[idx] = 0;
-					bloque_animando[idx] = 1;
-				}
-			}
-		}
-
-		// Mostrar sprite de salto
-		if (velocidad_y_mario != 0) {
-			LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 19,
-					mario_saltando_nivel_2, 1, 0, 0, 0);
-		}
-	}
-
-	// Si no hay suelo debajo, empieza a caer
-	if (!salta_mario && !mario_suelo) {
-		salta_mario = 1;
-		velocidad_y_mario = 0.1f;
-	}
-}
-static void Funciones_mario_grande(void) {
-	mario_suelo = mario_tiene_suelo();
-
-	// Movimiento horizontal + animación
 	if (derecha_mario == 1) {
 		uint8_t cx1, cy1, cx2, cy2;
-		uint8_t col1 = detectar_colision_mapa(posicion_x_mario + 20,
-				posicion_y_mario - 10, 'H', &cy1, &cx1);
-		uint8_t col2 = detectar_colision_mapa(posicion_x_mario + 20,
-				posicion_y_mario + 5, 'H', &cy2, &cx2);
+		uint8_t col1 = detectar_colision_mapa(posicion_x_mario + 20, posicion_y_mario + 5, 'H', &cy1, &cx1);
+		uint8_t col2 = detectar_colision_mapa(posicion_x_mario + 20, posicion_y_mario + 15, 'H', &cy2, &cx2);
 		uint8_t colision_con_luigi = hay_colision_entre_jugadores(
-				posicion_x_mario + 1, posicion_y_mario, 20, 19,
-				posicion_x_luigi, posicion_y_luigi, 20, 19);
-		if (col1 != 1 && col2 != 1 && !colision_con_luigi) {
+			posicion_x_mario + 1, posicion_y_mario, 20, 19,
+			posicion_x_luigi, posicion_y_luigi, 20, 19);
+
+		if (col1 != 1 && col2 != 1 && colision_con_luigi == 0) {
 			posicion_x_mario++;
 		}
 
 		if (!salta_mario) {
 			animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
-			LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 34,
-					mario_corriendo_grande_nivel_2, 4,
-					animacion_mario_corriendo, 0, 0);
+			uint8_t flip = (derecha_mario == 0) ? 1 : 0;
+			LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 19,
+			           mario_corriendo_nivel_2, 4, animacion_mario_corriendo, flip, 0);
 		}
 		derecha_mario = 2;
 	}
 
 	if (derecha_mario == 0) {
 		uint8_t cx1, cy1, cx2, cy2;
-		uint8_t col1 = detectar_colision_mapa(posicion_x_mario - 1,
-				posicion_y_mario - 10, 'H', &cy1, &cx1);
-		uint8_t col2 = detectar_colision_mapa(posicion_x_mario - 1,
-				posicion_y_mario + 5, 'H', &cy2, &cx2);
+		uint8_t col1 = detectar_colision_mapa(posicion_x_mario - 1, posicion_y_mario + 5, 'H', &cy1, &cx1);
+		uint8_t col2 = detectar_colision_mapa(posicion_x_mario - 1, posicion_y_mario + 15, 'H', &cy2, &cx2);
 		uint8_t colision_con_luigi = hay_colision_entre_jugadores(
-				posicion_x_mario + 1, posicion_y_mario, 20, 19,
-				posicion_x_luigi, posicion_y_luigi, 20, 19);
+			posicion_x_mario + 1, posicion_y_mario, 20, 19,
+			posicion_x_luigi, posicion_y_luigi, 20, 19);
 
 		if (col1 != 1 && col2 != 1 && colision_con_luigi == 0) {
 			posicion_x_mario--;
@@ -323,14 +240,16 @@ static void Funciones_mario_grande(void) {
 
 		if (!salta_mario) {
 			animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
-			LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 34,
-					mario_corriendo_grande_nivel_2, 4,
-					animacion_mario_corriendo, 1, 0);
+			uint8_t flip = (derecha_mario == 0) ? 1 : 0;
+			LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 19,
+			           mario_corriendo_nivel_2, 4, animacion_mario_corriendo, flip, 0);
 		}
 		derecha_mario = 2;
 	}
-	if (jugador_sobre_otro(posicion_x_mario, posicion_y_mario, 20, 19,  // Mario chico
-	                       posicion_x_luigi, posicion_y_luigi, 20, 34)) { // Luigi grande
+
+	// Mario sobre Luigi
+	if (jugador_sobre_otro(posicion_x_mario, posicion_y_mario, 20, 19,
+	                       posicion_x_luigi, posicion_y_luigi, 20, 34)) {
 		velocidad_y_mario = 0;
 		salta_mario = 0;
 		posicion_y_mario = posicion_y_luigi - 19;
@@ -340,63 +259,60 @@ static void Funciones_mario_grande(void) {
 		           mario_corriendo_nivel_2, 4, animacion_mario_corriendo,
 		           (derecha_mario == 0 ? 1 : 0), 0);
 	}
+
 	// Movimiento vertical (salto o caída)
 	if (salta_mario) {
 		posicion_y_mario += velocidad_y_mario;
 		velocidad_y_mario += gravedad;
 
-		// Caída sobre bloque
+		// Colisión cayendo (desde arriba)
 		if (velocidad_y_mario > 0) {
 			Bandera_colision = detectar_colision_mapa(posicion_x_mario + 10,
-					posicion_y_mario + 32, 'V', &BloqueY_colision,
-					&BloqueX_colision);
+			                                           posicion_y_mario + 20, 'V', &BloqueY_colision,
+			                                           &BloqueX_colision);
 			if (Bandera_colision == 2) {
 				velocidad_y_mario = 0;
 				salta_mario = 0;
-				posicion_y_mario = BloqueY_colision * 15 - 32;
+				posicion_y_mario = BloqueY_colision * 15 - 17;
 
-				// 🧽 Borrar cabeza vieja
-				LCD_Sprite(posicion_x_mario, posicion_y_mario - 10, 16, 10,
-						negro, 1, 0, 0, 0);
-
+				LCD_Sprite(posicion_x_mario, posicion_y_mario - 10, 16, 10, negro, 1, 0, 0, 0);
 				animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
 				uint8_t flip = (derecha_mario == 0) ? 1 : 0;
-
-				LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 34,
-						mario_corriendo_grande_nivel_2, 4,
-						animacion_mario_corriendo, flip, 0);
+				LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 19,
+				           mario_corriendo_nivel_2, 4, animacion_mario_corriendo, flip, 0);
 			}
 		}
 
-		// Límite inferior
-		if (posicion_y_mario >= 195) {
-			posicion_y_mario = 195;
-			velocidad_y_mario = 0;
-			salta_mario = 0;
-		}
-
-		// Colisión desde abajo (golpeando bloques)
+		// Colisión golpeando desde abajo
 		if (velocidad_y_mario < 0) {
-			Bandera_colision = detectar_colision_mapa(posicion_x_mario + 15,
-					posicion_y_mario, 'V', &BloqueY_colision,
-					&BloqueX_colision);
-			if (Bandera_colision == 2) {
-				velocidad_y_mario = 0;
-				posicion_y_mario += 2;
-				salta_mario = 1;
-				velocidad_y_mario = 1.0f;
+			for (uint8_t i = 0; i < MAX_BLOQUES_AMARILLOS; i++) {
+				if ((bloques_amarillos[i].activo || bloques_amarillos[i].evento_disparado) &&
+									    !bloques_amarillos[i].animando) {
 
-				uint8_t idx = BloqueX_colision - 10;
-				if (idx < 5 && bloque_desactivado[idx] == 0) {
-					bloque_animando[idx] = 1;
-					contador_animacion_bloque[idx] = 0;
-				}
-			}
+										uint16_t centro_x = posicion_x_mario + 10;
+										uint16_t cabeza_y = posicion_y_mario;
+
+										if (centro_x >= bloques_amarillos[i].x &&
+										    centro_x <= bloques_amarillos[i].x + 16 &&
+										    cabeza_y >= bloques_amarillos[i].y + 12 &&
+										    cabeza_y <= bloques_amarillos[i].y + 16) {
+
+											if (!bloques_amarillos[i].evento_disparado) {
+												bloques_amarillos[i].animando = 1;
+												bloques_amarillos[i].frame_anim = 0;
+											}
+
+											velocidad_y_mario = 0;
+											posicion_y_mario += 2;
+											break;
+										}
+									}			}
 		}
 
-		if (posicion_y_mario <= 195 && velocidad_y_mario != 0) {
-			LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 34,
-					mario_saltando_grande_nivel_2, 1, 0, 0, 0);
+		// Mostrar sprite de salto
+		if (velocidad_y_mario != 0) {
+			LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 19,
+			           mario_saltando_nivel_2, 1, 0, 0, 0);
 		}
 	}
 
@@ -406,18 +322,139 @@ static void Funciones_mario_grande(void) {
 		velocidad_y_mario = 0.1f;
 	}
 }
+static void Funciones_mario_grande(void) {
+	mario_suelo = mario_tiene_suelo();
+
+	// Movimiento horizontal
+	if (derecha_mario == 1) {
+		uint8_t cx1, cy1, cx2, cy2;
+		uint8_t col1 = detectar_colision_mapa(posicion_x_mario + 20, posicion_y_mario - 10, 'H', &cy1, &cx1);
+		uint8_t col2 = detectar_colision_mapa(posicion_x_mario + 20, posicion_y_mario + 5, 'H', &cy2, &cx2);
+		uint8_t colision_con_luigi = hay_colision_entre_jugadores(
+			posicion_x_mario + 1, posicion_y_mario, 20, 19,
+			posicion_x_luigi, posicion_y_luigi, 20, 19);
+		if (col1 != 1 && col2 != 1 && !colision_con_luigi) {
+			posicion_x_mario++;
+		}
+
+		if (!salta_mario) {
+			animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
+			LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 34,
+			           mario_corriendo_grande_nivel_2, 4,
+			           animacion_mario_corriendo, 0, 0);
+		}
+		derecha_mario = 2;
+	}
+
+	if (derecha_mario == 0) {
+		uint8_t cx1, cy1, cx2, cy2;
+		uint8_t col1 = detectar_colision_mapa(posicion_x_mario - 1, posicion_y_mario - 10, 'H', &cy1, &cx1);
+		uint8_t col2 = detectar_colision_mapa(posicion_x_mario - 1, posicion_y_mario + 5, 'H', &cy2, &cx2);
+		uint8_t colision_con_luigi = hay_colision_entre_jugadores(
+			posicion_x_mario + 1, posicion_y_mario, 20, 19,
+			posicion_x_luigi, posicion_y_luigi, 20, 19);
+
+		if (col1 != 1 && col2 != 1 && !colision_con_luigi) {
+			posicion_x_mario--;
+		}
+
+		if (!salta_mario) {
+			animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
+			LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 34,
+			           mario_corriendo_grande_nivel_2, 4,
+			           animacion_mario_corriendo, 1, 0);
+		}
+		derecha_mario = 2;
+	}
+
+	// Mario sobre Luigi
+	if (jugador_sobre_otro(posicion_x_mario, posicion_y_mario, 20, 19,
+	                       posicion_x_luigi, posicion_y_luigi, 20, 34)) {
+		velocidad_y_mario = 0;
+		salta_mario = 0;
+		posicion_y_mario = posicion_y_luigi - 19;
+
+		LCD_Sprite(posicion_x_mario, posicion_y_mario - 10, 16, 10, negro, 1, 0, 0, 0);
+		LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 34,
+		           mario_corriendo_grande_nivel_2, 4,
+		           animacion_mario_corriendo, (derecha_mario == 0 ? 1 : 0), 0);
+	}
+
+	// Movimiento vertical
+	if (salta_mario) {
+		posicion_y_mario += velocidad_y_mario;
+		velocidad_y_mario += gravedad;
+
+		// Caída
+		if (velocidad_y_mario > 0) {
+			Bandera_colision = detectar_colision_mapa(posicion_x_mario + 10,
+			                                           posicion_y_mario + 32, 'V',
+			                                           &BloqueY_colision, &BloqueX_colision);
+			if (Bandera_colision == 2) {
+				velocidad_y_mario = 0;
+				salta_mario = 0;
+				posicion_y_mario = BloqueY_colision * 15 - 32;
+
+				LCD_Sprite(posicion_x_mario, posicion_y_mario - 10, 16, 10, negro, 1, 0, 0, 0);
+				animacion_mario_corriendo = (posicion_x_mario / 5) % 4;
+				uint8_t flip = (derecha_mario == 0) ? 1 : 0;
+				LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 34,
+				           mario_corriendo_grande_nivel_2, 4, animacion_mario_corriendo, flip, 0);
+			}
+		}
+
+		// Golpeando bloques desde abajo
+		if (velocidad_y_mario < 0) {
+			for (uint8_t i = 0; i < MAX_BLOQUES_AMARILLOS; i++) {
+				if ((bloques_amarillos[i].activo || bloques_amarillos[i].evento_disparado) &&
+					    !bloques_amarillos[i].animando) {
+
+						uint16_t centro_x = posicion_x_mario + 10;
+						uint16_t cabeza_y = posicion_y_mario;
+
+						if (centro_x >= bloques_amarillos[i].x &&
+						    centro_x <= bloques_amarillos[i].x + 16 &&
+						    cabeza_y >= bloques_amarillos[i].y + 12 &&
+						    cabeza_y <= bloques_amarillos[i].y + 16) {
+
+							if (!bloques_amarillos[i].evento_disparado) {
+								bloques_amarillos[i].animando = 1;
+								bloques_amarillos[i].frame_anim = 0;
+							}
+
+							velocidad_y_mario = 0;
+							posicion_y_mario += 2;
+							break;
+						}
+					}
+
+			}
+		}
+
+		// Mostrar sprite de salto
+		if (posicion_y_mario <= 195 && velocidad_y_mario != 0) {
+			LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 34,
+			           mario_saltando_grande_nivel_2, 1, 0, 0, 0);
+		}
+	}
+
+	// Caída automática
+	if (!salta_mario && !mario_suelo) {
+		salta_mario = 1;
+		velocidad_y_mario = 0.1f;
+	}
+}
 static void Funciones_luigi_chiquito(void) {
 	luigi_suelo = luigi_tiene_suelo();
 
+	// Movimiento horizontal
 	if (derecha_luigi == 1) {
 		uint8_t cx1, cy1, cx2, cy2;
-		uint8_t col1 = detectar_colision_mapa(posicion_x_luigi + 20,
-				posicion_y_luigi + 5, 'H', &cy1, &cx1);
-		uint8_t col2 = detectar_colision_mapa(posicion_x_luigi + 20,
-				posicion_y_luigi + 15, 'H', &cy2, &cx2);
+		uint8_t col1 = detectar_colision_mapa(posicion_x_luigi + 20, posicion_y_luigi + 5, 'H', &cy1, &cx1);
+		uint8_t col2 = detectar_colision_mapa(posicion_x_luigi + 20, posicion_y_luigi + 15, 'H', &cy2, &cx2);
 		uint8_t colision_con_mario = hay_colision_entre_jugadores(
-				posicion_x_luigi + 1, posicion_y_luigi, 20, 19,
-				posicion_x_mario, posicion_y_mario, 20, 19);
+			posicion_x_luigi + 1, posicion_y_luigi, 20, 19,
+			posicion_x_mario, posicion_y_mario, 20, 19);
 
 		if (col1 != 1 && col2 != 1 && !colision_con_mario) {
 			posicion_x_luigi++;
@@ -427,22 +464,18 @@ static void Funciones_luigi_chiquito(void) {
 			animacion_luigi_corriendo = (posicion_x_luigi / 5) % 4;
 			uint8_t flip = (derecha_luigi == 0) ? 1 : 0;
 			LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 5, 20, 19,
-					luigi_corriendo_nivel_2, 4, animacion_luigi_corriendo, flip,
-					0);
+			           luigi_corriendo_nivel_2, 4, animacion_luigi_corriendo, flip, 0);
 		}
 		derecha_luigi = 2;
 	}
 
 	if (derecha_luigi == 0) {
-
 		uint8_t cx1, cy1, cx2, cy2;
-		uint8_t col1 = detectar_colision_mapa(posicion_x_luigi - 1,
-				posicion_y_luigi + 5, 'H', &cy1, &cx1);
-		uint8_t col2 = detectar_colision_mapa(posicion_x_luigi - 1,
-				posicion_y_luigi + 15, 'H', &cy2, &cx2);
+		uint8_t col1 = detectar_colision_mapa(posicion_x_luigi - 1, posicion_y_luigi + 5, 'H', &cy1, &cx1);
+		uint8_t col2 = detectar_colision_mapa(posicion_x_luigi - 1, posicion_y_luigi + 15, 'H', &cy2, &cx2);
 		uint8_t colision_con_mario = hay_colision_entre_jugadores(
-				posicion_x_luigi + 1, posicion_y_luigi, 20, 19,
-				posicion_x_mario, posicion_y_mario, 20, 19);
+			posicion_x_luigi + 1, posicion_y_luigi, 20, 19,
+			posicion_x_mario, posicion_y_mario, 20, 19);
 
 		if (col1 != 1 && col2 != 1 && !colision_con_mario) {
 			posicion_x_luigi--;
@@ -452,13 +485,14 @@ static void Funciones_luigi_chiquito(void) {
 			animacion_luigi_corriendo = (posicion_x_luigi / 5) % 4;
 			uint8_t flip = (derecha_luigi == 0) ? 1 : 0;
 			LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 5, 20, 19,
-					luigi_corriendo_nivel_2, 4, animacion_luigi_corriendo, flip,
-					0);
+			           luigi_corriendo_nivel_2, 4, animacion_luigi_corriendo, flip, 0);
 		}
 		derecha_luigi = 2;
 	}
-	if (jugador_sobre_otro(posicion_x_luigi, posicion_y_luigi, 20, 34,  // Luigi grande
-	                       posicion_x_mario, posicion_y_mario, 20, 19)) { // Mario chico
+
+	// Luigi sobre Mario
+	if (jugador_sobre_otro(posicion_x_luigi, posicion_y_luigi, 20, 34,
+	                       posicion_x_mario, posicion_y_mario, 20, 19)) {
 		velocidad_y_luigi = 0;
 		salta_luigi = 0;
 		posicion_y_luigi = posicion_y_mario - 34;
@@ -468,53 +502,66 @@ static void Funciones_luigi_chiquito(void) {
 		           luigi_corriendo_grande_nivel_2, 4, animacion_luigi_corriendo,
 		           (derecha_luigi == 0 ? 1 : 0), 0);
 	}
+
+	// Movimiento vertical (salto o caída)
 	if (salta_luigi) {
 		posicion_y_luigi += velocidad_y_luigi;
 		velocidad_y_luigi += gravedad;
 
+		// Colisión desde arriba
 		if (velocidad_y_luigi > 0) {
 			Bandera_colision = detectar_colision_mapa(posicion_x_luigi + 10,
-					posicion_y_luigi + 20, 'V', &BloqueY_colision,
-					&BloqueX_colision);
+			                                           posicion_y_luigi + 20, 'V',
+			                                           &BloqueY_colision, &BloqueX_colision);
 			if (Bandera_colision == 2) {
 				velocidad_y_luigi = 0;
 				salta_luigi = 0;
 				posicion_y_luigi = BloqueY_colision * 15 - 17;
 
-				LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 10, 16, 10,
-						negro, 1, 0, 0, 0);
-
+				LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 10, 16, 10, negro, 1, 0, 0, 0);
 				animacion_luigi_corriendo = (posicion_x_luigi / 5) % 4;
 				uint8_t flip = (derecha_luigi == 0) ? 1 : 0;
 				LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 5, 20, 19,
-						luigi_corriendo_nivel_2, 4, animacion_luigi_corriendo,
-						flip, 0);
+				           luigi_corriendo_nivel_2, 4, animacion_luigi_corriendo, flip, 0);
 			}
 		}
 
+		// Colisión desde abajo (golpeando bloques)
 		if (velocidad_y_luigi < 0) {
-			Bandera_colision = detectar_colision_mapa(posicion_x_luigi + 15,
-					posicion_y_luigi - 7, 'V', &BloqueY_colision,
-					&BloqueX_colision);
-			if (Bandera_colision == 2) {
-				velocidad_y_luigi = 0;
-				posicion_y_luigi += 2;
-				salta_luigi = 1;
+			for (uint8_t i = 0; i < MAX_BLOQUES_AMARILLOS; i++) {
+				if ((bloques_amarillos[i].activo || bloques_amarillos[i].evento_disparado) &&
+				    !bloques_amarillos[i].animando) {
 
-				uint8_t idx = BloqueX_colision - 10;
-				if (idx < 5 && bloque_desactivado[idx] == 0) {
-					contador_animacion_bloque[idx] = 0;
-					bloque_animando[idx] = 1;
+					uint16_t centro_x = posicion_x_luigi + 10;
+					uint16_t cabeza_y = posicion_y_luigi;
+
+					if (centro_x >= bloques_amarillos[i].x &&
+					    centro_x <= bloques_amarillos[i].x + 16 &&
+					    cabeza_y >= bloques_amarillos[i].y + 12 &&
+					    cabeza_y <= bloques_amarillos[i].y + 16) {
+
+						if (!bloques_amarillos[i].evento_disparado) {
+							bloques_amarillos[i].animando = 1;
+							bloques_amarillos[i].frame_anim = 0;
+						}
+
+						velocidad_y_luigi = 0;
+						posicion_y_luigi += 2;
+						break;
+					}
 				}
+
 			}
 		}
 
+		// Mostrar sprite de salto
 		if (velocidad_y_luigi != 0) {
 			LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 5, 20, 19,
-					luigi_saltando_nivel_2, 1, 0, 0, 0);
+			           luigi_saltando_nivel_2, 1, 0, 0, 0);
 		}
 	}
 
+	// Caída automática
 	if (!salta_luigi && !luigi_suelo) {
 		salta_luigi = 1;
 		velocidad_y_luigi = 0.1f;
@@ -523,15 +570,14 @@ static void Funciones_luigi_chiquito(void) {
 static void Funciones_luigi_grande(void) {
 	luigi_suelo = luigi_tiene_suelo();
 
+	// Movimiento horizontal
 	if (derecha_luigi == 1) {
 		uint8_t cx1, cy1, cx2, cy2;
-		uint8_t col1 = detectar_colision_mapa(posicion_x_luigi + 20,
-				posicion_y_luigi - 10, 'H', &cy1, &cx1);
-		uint8_t col2 = detectar_colision_mapa(posicion_x_luigi + 20,
-				posicion_y_luigi + 5, 'H', &cy2, &cx2);
+		uint8_t col1 = detectar_colision_mapa(posicion_x_luigi + 20, posicion_y_luigi - 10, 'H', &cy1, &cx1);
+		uint8_t col2 = detectar_colision_mapa(posicion_x_luigi + 20, posicion_y_luigi + 5, 'H', &cy2, &cx2);
 		uint8_t colision_con_mario = hay_colision_entre_jugadores(
-				posicion_x_luigi + 1, posicion_y_luigi, 20, 19,
-				posicion_x_mario, posicion_y_mario, 20, 19);
+			posicion_x_luigi + 1, posicion_y_luigi, 20, 19,
+			posicion_x_mario, posicion_y_mario, 20, 19);
 
 		if (col1 != 1 && col2 != 1 && !colision_con_mario) {
 			posicion_x_luigi++;
@@ -540,21 +586,18 @@ static void Funciones_luigi_grande(void) {
 		if (!salta_luigi) {
 			animacion_luigi_corriendo = (posicion_x_luigi / 5) % 4;
 			LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 5, 20, 34,
-					luigi_corriendo_grande_nivel_2, 4,
-					animacion_luigi_corriendo, 0, 0);
+			           luigi_corriendo_grande_nivel_2, 4, animacion_luigi_corriendo, 0, 0);
 		}
 		derecha_luigi = 2;
 	}
 
 	if (derecha_luigi == 0) {
 		uint8_t cx1, cy1, cx2, cy2;
-		uint8_t col1 = detectar_colision_mapa(posicion_x_luigi - 1,
-				posicion_y_luigi - 10, 'H', &cy1, &cx1);
-		uint8_t col2 = detectar_colision_mapa(posicion_x_luigi - 1,
-				posicion_y_luigi + 5, 'H', &cy2, &cx2);
+		uint8_t col1 = detectar_colision_mapa(posicion_x_luigi - 1, posicion_y_luigi - 10, 'H', &cy1, &cx1);
+		uint8_t col2 = detectar_colision_mapa(posicion_x_luigi - 1, posicion_y_luigi + 5, 'H', &cy2, &cx2);
 		uint8_t colision_con_mario = hay_colision_entre_jugadores(
-				posicion_x_luigi + 1, posicion_y_luigi, 20, 19,
-				posicion_x_mario, posicion_y_mario, 20, 19);
+			posicion_x_luigi + 1, posicion_y_luigi, 20, 19,
+			posicion_x_mario, posicion_y_mario, 20, 19);
 
 		if (col1 != 1 && col2 != 1 && !colision_con_mario) {
 			posicion_x_luigi--;
@@ -563,13 +606,14 @@ static void Funciones_luigi_grande(void) {
 		if (!salta_luigi) {
 			animacion_luigi_corriendo = (posicion_x_luigi / 5) % 4;
 			LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 5, 20, 34,
-					luigi_corriendo_grande_nivel_2, 4,
-					animacion_luigi_corriendo, 1, 0);
+			           luigi_corriendo_grande_nivel_2, 4, animacion_luigi_corriendo, 1, 0);
 		}
 		derecha_luigi = 2;
 	}
-	if (jugador_sobre_otro(posicion_x_luigi, posicion_y_luigi, 20, 34,  // Luigi grande
-	                       posicion_x_mario, posicion_y_mario, 20, 19)) { // Mario chico
+
+	// Luigi sobre Mario
+	if (jugador_sobre_otro(posicion_x_luigi, posicion_y_luigi, 20, 34,
+	                       posicion_x_mario, posicion_y_mario, 20, 19)) {
 		velocidad_y_luigi = 0;
 		salta_luigi = 0;
 		posicion_y_luigi = posicion_y_mario - 34;
@@ -579,67 +623,159 @@ static void Funciones_luigi_grande(void) {
 		           luigi_corriendo_grande_nivel_2, 4, animacion_luigi_corriendo,
 		           (derecha_luigi == 0 ? 1 : 0), 0);
 	}
+
+	// Movimiento vertical (salto o caída)
 	if (salta_luigi) {
 		posicion_y_luigi += velocidad_y_luigi;
 		velocidad_y_luigi += gravedad;
 
+		// Colisión desde arriba (caída)
 		if (velocidad_y_luigi > 0) {
 			Bandera_colision = detectar_colision_mapa(posicion_x_luigi + 10,
-					posicion_y_luigi + 32, 'V', &BloqueY_colision,
-					&BloqueX_colision);
+			                                           posicion_y_luigi + 32, 'V',
+			                                           &BloqueY_colision, &BloqueX_colision);
 			if (Bandera_colision == 2) {
 				velocidad_y_luigi = 0;
 				salta_luigi = 0;
 				posicion_y_luigi = BloqueY_colision * 15 - 32;
 
-				LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 10, 16, 10,
-						negro, 1, 0, 0, 0);
-
+				LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 10, 16, 10, negro, 1, 0, 0, 0);
 				animacion_luigi_corriendo = (posicion_x_luigi / 5) % 4;
 				uint8_t flip = (derecha_luigi == 0) ? 1 : 0;
-
 				LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 5, 20, 34,
-						luigi_corriendo_grande_nivel_2, 4,
-						animacion_luigi_corriendo, flip, 0);
+				           luigi_corriendo_grande_nivel_2, 4, animacion_luigi_corriendo, flip, 0);
 			}
 		}
 
-		if (posicion_y_luigi >= 195) {
-			posicion_y_luigi = 195;
-			velocidad_y_luigi = 0;
-			salta_luigi = 0;
-		}
-
+		// Golpeando bloques desde abajo
 		if (velocidad_y_luigi < 0) {
-			Bandera_colision = detectar_colision_mapa(posicion_x_luigi + 15,
-					posicion_y_luigi, 'V', &BloqueY_colision,
-					&BloqueX_colision);
-			if (Bandera_colision == 2) {
-				velocidad_y_luigi = 0;
-				posicion_y_luigi += 2;
-				salta_luigi = 1;
-				velocidad_y_luigi = 1.0f;
+			for (uint8_t i = 0; i < MAX_BLOQUES_AMARILLOS; i++) {
+				if ((bloques_amarillos[i].activo || bloques_amarillos[i].evento_disparado) &&
+				    !bloques_amarillos[i].animando) {
 
-				uint8_t idx = BloqueX_colision - 10;
-				if (idx < 5 && bloque_desactivado[idx] == 0) {
-					bloque_animando[idx] = 1;
-					contador_animacion_bloque[idx] = 0;
+					uint16_t centro_x = posicion_x_luigi + 10;
+					uint16_t cabeza_y = posicion_y_luigi;
+
+					if (centro_x >= bloques_amarillos[i].x &&
+					    centro_x <= bloques_amarillos[i].x + 16 &&
+					    cabeza_y >= bloques_amarillos[i].y + 12 &&
+					    cabeza_y <= bloques_amarillos[i].y + 16) {
+
+						if (!bloques_amarillos[i].evento_disparado) {
+							bloques_amarillos[i].animando = 1;
+							bloques_amarillos[i].frame_anim = 0;
+						}
+
+						velocidad_y_luigi = 0;
+						posicion_y_luigi += 2;
+						break;
+					}
 				}
+
 			}
 		}
 
+		// Mostrar sprite de salto
 		if (posicion_y_luigi <= 195 && velocidad_y_luigi != 0) {
-			LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 5, 20, 33,
-					luigi_saltando_grande_nivel_2, 1, 0, 0, 0);
+			LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 5, 20, 34,
+			           luigi_saltando_grande_nivel_2, 1, 0, 0, 0);
 		}
 	}
 
+	// Caída automática
 	if (!salta_luigi && !luigi_suelo) {
 		salta_luigi = 1;
 		velocidad_y_luigi = 0.1f;
 	}
 }
+static void Funciones_goombas(void) {
+	static uint8_t contador_animacion_muerte_goomba[MAX_GOOMBAS] = {0};
+	static uint8_t goomba_colisionando[MAX_GOOMBAS] = {0};
 
+	for (uint8_t i = 0; i < MAX_GOOMBAS; i++) {
+		if (!goombas[i].activo) {
+			if (contador_animacion_muerte_goomba[i] > 0) {
+				LCD_Sprite(goombas[i].x, goombas[i].y, 18, 18, gumba_animacion, 4, 3, 0, 0);
+				contador_animacion_muerte_goomba[i]--;
+			} else if (goombas[i].x != 0 || goombas[i].y != 0) {
+				LCD_Sprite(goombas[i].x, goombas[i].y, 18, 18, gumba_animacion, 4, 4, 0, 0);
+			}
+			continue;
+		}
+
+		// Mostrar sprite animado
+		LCD_Sprite(goombas[i].x, goombas[i].y, 18, 18, gumba_animacion, 4, animacion_gumba, 0, 0);
+
+		// Movimiento
+		goombas[i].x += goombas[i].direccion;
+
+		// Colisión horizontal con el entorno
+		uint8_t col_y, col_x;
+		if (goombas[i].direccion == -1) {
+			if (detectar_colision_mapa(goombas[i].x - 1, goombas[i].y + 8, 'H', &col_y, &col_x) == 1) {
+				goombas[i].direccion = 1;
+			}
+		} else {
+			if (detectar_colision_mapa(goombas[i].x + 16 + 1, goombas[i].y + 8, 'H', &col_y, &col_x) == 1) {
+				goombas[i].direccion = -1;
+			}
+		}
+
+		// ------ COLISIÓN CON MARIO ------
+		uint8_t mario_altura = (estado_mario == 0) ? 19 : 34;
+
+		if (estado_mario <= 2 && hay_colision_entre_jugadores(goombas[i].x, goombas[i].y, 16, 16,
+			posicion_x_mario, posicion_y_mario, 20, mario_altura)) {
+
+			if (jugador_sobre_otro(posicion_x_mario, posicion_y_mario, 20, mario_altura,
+				goombas[i].x, goombas[i].y, 16, 16)) {
+				goombas[i].activo = 0;
+				contador_animacion_muerte_goomba[i] = 3;
+				velocidad_y_mario = -1.0f;
+				salta_mario = 1;
+			} else {
+				estado_mario --;  // sin importar si ya está en 0
+			}
+
+			if (!goomba_colisionando[i]) {
+				goombas[i].direccion *= -1;
+				goomba_colisionando[i] = 1;
+				goombas[i].x += goombas[i].direccion * 2;
+			}
+		} else {
+			goomba_colisionando[i] = 0;
+		}
+
+		// ------ COLISIÓN CON LUIGI ------
+		uint8_t luigi_altura = (estado_luigi == 0) ? 19 : 34;
+
+		if (estado_luigi <= 2 && hay_colision_entre_jugadores(goombas[i].x, goombas[i].y, 16, 16,
+			posicion_x_luigi, posicion_y_luigi, 20, luigi_altura)) {
+
+			if (jugador_sobre_otro(posicion_x_luigi, posicion_y_luigi, 20, luigi_altura,
+				goombas[i].x, goombas[i].y, 16, 16)) {
+				goombas[i].activo = 0;
+				contador_animacion_muerte_goomba[i] = 3;
+				velocidad_y_luigi = -1.0f;
+				salta_luigi = 1;
+			} else {
+				estado_luigi --;
+			}
+
+			if (!goomba_colisionando[i]) {
+				goombas[i].direccion *= -1;
+				goomba_colisionando[i] = 1;
+				goombas[i].x += goombas[i].direccion * 2;
+			}
+		} else {
+			goomba_colisionando[i] = 0;
+		}
+	}
+}
+
+
+//-----------------------------------------------------------------------------
+//--------------------Funciones  relacionadas con crear etapa------------------
 void Nivel(uint8_t nivel) {
 	if (nivel == 1) {
 		if (estado_nivel == 0) {
@@ -661,11 +797,6 @@ static void Primer_pantalla_segundo_nivel(void) {
 		uint16_t x_bloque = i * 15 + 80;
 		LCD_Sprite(x_bloque, 10, 15, 15, bloque_adorno, 1, 0, 0, 0); // suponiendo que bloque es tu sprite de bloque
 	}
-	for (uint8_t i = 0; i < 5; i++) { // 240 / 15 = 16 bloques
-		uint16_t x_bloque = i * 15 + 150;
-		LCD_Sprite(x_bloque, 150, 16, 16, Bloque_amarillo_misterioso_nivel_2, 3,
-				0, 0, 0); // suponiendo que bloque es tu sprite de bloque
-	}
 	for (uint8_t i = 0; i < 20; i++) {
 		uint16_t x_bloque = i * 16;
 		LCD_Sprite(x_bloque, 208, 16, 16, bloque_piso, 1, 1, 0, 0);
@@ -674,32 +805,112 @@ static void Primer_pantalla_segundo_nivel(void) {
 		uint16_t x_bloque = i * 16;
 		LCD_Sprite(x_bloque, 224, 16, 16, bloque_piso, 1, 1, 0, 0);
 	}
+
+	uint16_t bloques_etapa_0[][2] = { { 150, 150 }, { 165, 150 }, { 180, 150 },
+			{ 195, 150 }, { 210, 150 } };
+	uint16_t monedas_etapa_0[][2] = { { 0 * 15 + 150, 130 }, { 1 * 15
+			+ 150, 130 }, { 2 * 15 + 150, 130 }, { 3 * 15 + 150, 130 }, { 4 * 15 + 150, 130 },
+
+	};
+	//uint16_t Goombas_etapa_0 [][2] = {{210,190},{185,190},{165,190}};
+	uint16_t Goombas_etapa_0 [][2] = {{210,190}};
+
+	configurar_monedas(monedas_etapa_0, 5);
+	configurar_bloques_amarillos(bloques_etapa_0, 5);
+	configurar_goombas(Goombas_etapa_0, 1);
 	cargar_colisiones_etapa_0();
+	registrar_colisiones_bloques_amarillos();
+
 
 }
+void dibujar_monedas(void) {
+	for (uint8_t i = 0; i < MAX_MONEDAS; i++) {
+		if (monedas[i].activa) {
+			LCD_Sprite(monedas[i].x, monedas[i].y, 12, 16, monedas_animacion, 3,
+					Estado_monedas_animacion, 0, 0);
+		}
+	}
+}
+void configurar_bloques_amarillos(const uint16_t posiciones[][2],
+		uint8_t cantidad) {
+	for (uint8_t i = 0; i < cantidad && i < MAX_BLOQUES_AMARILLOS; i++) {
+		bloques_amarillos[i].x = posiciones[i][0];
+		bloques_amarillos[i].y = posiciones[i][1];
+		bloques_amarillos[i].activo = 1;
+		bloques_amarillos[i].animando = 0;
+		bloques_amarillos[i].frame_anim = 0;
+		bloques_amarillos[i].evento_disparado = 0;
+	}
+	for (uint8_t i = cantidad; i < MAX_BLOQUES_AMARILLOS; i++) {
+		bloques_amarillos[i].activo = 0;
+	}
+}
+void configurar_monedas(const uint16_t posiciones[][2], uint8_t cantidad) {
+	// Máximo MAX_MONEDAS
+	for (uint8_t i = 0; i < cantidad && i < MAX_MONEDAS; i++) {
+		monedas[i].x = posiciones[i][0];
+		monedas[i].y = posiciones[i][1];
+		monedas[i].activa = 1;
+	}
+	// Desactiva el resto por si son menos de MAX_MONEDAS
+	for (uint8_t i = cantidad; i < MAX_MONEDAS; i++) {
+		monedas[i].activa = 0;
+	}
+}
+void configurar_goombas(const uint16_t posiciones[][2], uint8_t cantidad) {
+	for (uint8_t i = 0; i < MAX_GOOMBAS; i++) {
+		if (i < cantidad) {
+			goombas[i].x = posiciones[i][0];
+			goombas[i].y = posiciones[i][1];
+			goombas[i].direccion = -1;  // Por defecto hacia la izquierda
+			goombas[i].activo = 1;
+		} else {
+			goombas[i].x = 0;  // limpiar por si acaso
+			goombas[i].y = 0;
+			goombas[i].activo = 0;
+		}
+	}
+	num_goombas_activos = cantidad;
+}
 static void animacion_bloques_amarillos(void) {
-	if (estado_nivel == 0) {
-		for (uint8_t i = 0; i < 5; i++) {
-			uint16_t x_bloque = i * 15 + 150;
 
-			if (bloque_desactivado[i] == 0) {
-				if (bloque_animando[i]) {
-					// Mostrar el frame actual sin sumarlo aquí
-					LCD_Sprite(x_bloque, 154 - 10, 15, 22,
-							Bloque_amarillo_misterioso_rompiendose_nivel_2, 3,
-							contador_animacion_bloque[i], 0, 0);
-				} else {
-					// Animación normal
-					LCD_Sprite(x_bloque, 150, 16, 16,
-							Bloque_amarillo_misterioso_nivel_2, 3,
-							Estado_bloques_animacion, 0, 0);
-				}
+		for (uint8_t i = 0; i < MAX_BLOQUES_AMARILLOS; i++) {
+
+			// Ignorar bloques no configurados
+			if (!bloques_amarillos[i].activo
+					&& !bloques_amarillos[i].evento_disparado)
+				continue;
+
+			uint16_t x = bloques_amarillos[i].x;
+			uint8_t y = bloques_amarillos[i].y;
+
+			if (bloques_amarillos[i].animando) {
+				LCD_Sprite(x, y - 6, 15, 22,
+				           Bloque_amarillo_misterioso_rompiendose_nivel_2,
+				           3, bloques_amarillos[i].frame_anim, 0, 0);
+			} else if (bloques_amarillos[i].evento_disparado) {
+				LCD_Sprite(x, y - 6, 16, 22,
+				           Bloque_amarillo_misterioso_rompiendose_nivel_2,
+				           3, 2, 0, 0);
 			} else {
-				// Mostrar sprite apagado
-				//LCD_Sprite(x, y, width, height, bitmap, columns, index, flip, offset)
-				LCD_Sprite(x_bloque, 154 - 10, 16, 22,
-						Bloque_amarillo_misterioso_rompiendose_nivel_2, 3, 2, 0,
-						0);
+				LCD_Sprite(x, y, 16, 16,
+				           Bloque_amarillo_misterioso_nivel_2,
+				           3, Estado_bloques_animacion, 0, 0);
+			}
+
+		}
+	}
+
+//-----------------------------------------------------------------------------
+//--------------------Funciones  relacionadas con colisones--------------------
+void registrar_colisiones_bloques_amarillos(void) {
+	for (uint8_t i = 0; i < MAX_BLOQUES_AMARILLOS; i++) {
+		if (bloques_amarillos[i].activo) {
+			uint8_t cx = bloques_amarillos[i].x / 15;
+			uint8_t cy = bloques_amarillos[i].y / 15;
+
+			if (cx < MAPA_ANCHO && cy < MAPA_ALTO) {
+				mapa_colision[cy][cx] = 1;
 			}
 		}
 	}
@@ -715,13 +926,12 @@ void cargar_colisiones_etapa_0(void) {
 	for (uint8_t i = 0; i < 16; i++)
 		mapa_colision[0][(i * 15 + 80) / 15] = 1;
 
-	// Bloques misteriosos
-	for (uint8_t i = 0; i < 5; i++)
-		mapa_colision[150 / 15][(i * 15 + 150) / 15] = 1;
 	// Piso colisiones
 	for (uint8_t i = 0; i < 22; i++) {
 		mapa_colision[14][i] = 1;
 	}
+	for (uint8_t i = 0; i < 14; i++)
+			mapa_colision[i][20] = 1;
 }
 uint8_t detectar_colision_mapa(uint16_t x, uint16_t y, char direccion,
 		uint8_t *col_y, uint8_t *col_x) {
@@ -769,7 +979,7 @@ uint8_t hay_colision_entre_jugadores(uint16_t x1, uint16_t y1, uint8_t w1,
 			y1 >= y2 + h2);    // parte alta de Mario debajo de Luigi
 }
 uint8_t jugador_sobre_otro(uint16_t x1, uint16_t y1, uint8_t w1, uint8_t h1,
-                           uint16_t x2, uint16_t y2, uint8_t w2, uint8_t h2) {
+		uint16_t x2, uint16_t y2, uint8_t w2, uint8_t h2) {
 	// Verifica si jugador 1 está "encima" del jugador 2
 	if (x1 + w1 >= x2 && x1 <= x2 + w2) {
 		if ((y1 + h1) >= y2 - 1 && (y1 + h1) <= y2 + 6) {
@@ -778,6 +988,7 @@ uint8_t jugador_sobre_otro(uint16_t x1, uint16_t y1, uint8_t w1, uint8_t h1,
 	}
 	return 0;
 }
+
 /* USER CODE END 0 */
 
 /**
@@ -819,8 +1030,7 @@ int main(void)
 	LCD_Clear(0x00);
 	HAL_TIM_Base_Start_IT(&htim6);
 	HAL_TIM_Base_Start_IT(&htim7);
-	nivel = 0;
-
+	escribir_terminal("empieza el juego");
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -835,33 +1045,75 @@ int main(void)
 			LCD_Bitmap(0, 0, 320, 240, menu);
 		}
 		if (nivel == 1) {
-			if (bandera_estado_nivel==0) {
+
+			//----------------------------------------------------------------------------------------------------------
+			//-------------------------------------Mario grande movimiento----------------------------------------------
+			if (bandera_estado_nivel == 0) {
 				Nivel(nivel);
-				bandera_estado_nivel=1;
+				bandera_estado_nivel = 1;
 			}
-			if (estado_mario == 0) {
-				Funciones_mario_chiquito();
-			}
-			//----------------------------------------------------------------------------------------------------------
-			//-------------------------------------Mario grande movimiento----------------------------------------------
-			if (estado_mario == 1) {
-				Funciones_mario_grande();
-			}
-			if (estado_luigi == 0) {
-				Funciones_luigi_chiquito();
-			}
-			//----------------------------------------------------------------------------------------------------------
-			//-------------------------------------Mario grande movimiento----------------------------------------------
-			if (estado_luigi == 1) {
-				Funciones_luigi_grande();
-			}
-			if (bandera_recargar_bloques == 1) {
-				animacion_bloques_amarillos();
+			if (bandera_jugador1) {
+				if (estado_mario == 0) {
+					Funciones_mario_chiquito();
+				}
+
+				if (estado_mario == 1) {
+					Funciones_mario_grande();
+
+				if (velocidad_y_mario!=0) {
+					bandera_jugador1=1;
+				}else{
+					bandera_jugador1=0;
+				}
+
 			}
 		}
+			if (bandera_jugador2) {
+				if (estado_luigi == 0) {
+					Funciones_luigi_chiquito();
+				}
+				if (estado_luigi == 1) {
+					Funciones_luigi_grande();
+				}if (velocidad_y_luigi!=0) {
+					bandera_jugador2=1;
+
+				}else{
+					bandera_jugador2=0;
+				}
+
+			}
+			// Desaparecer Mario si su estado < 0
+			if (estado_mario >= 3 && bandera_muerte1 == 1) {
+				bandera_muerte1 = 0;
+				FillRect(posicion_x_mario, posicion_y_mario - 4, 20, 19, 0x00);
+			}
+
+			// Desaparecer Luigi si su estado >= 3
+			if (estado_luigi >= 3 && bandera_muerte2 == 1) {
+				bandera_muerte2 = 0;
+				FillRect(posicion_x_luigi, posicion_y_luigi - 4, 20, 19, 0x00);
+			}
+
+			//----------------------------------------------------------------------------------------------------------
+			//-------------------------------------Mario grande movimiento----------------------------------------------
+
+			if (bandera_recargar_bloques == 1) {
+				animacion_bloques_amarillos();
+				bandera_recargar_bloques=0;
+			}
+			if (bandera_recargar_monedas) {
+				bandera_recargar_monedas = 0;
+				dibujar_monedas();
+			}
+			if (bandera_mover_gumba) {
+				bandera_mover_gumba = 0;
+				Funciones_goombas();
+			}
+
 
 	}
   /* USER CODE END 3 */
+}
 }
 
 /**
@@ -1008,7 +1260,7 @@ static void MX_TIM7_Init(void)
   htim7.Instance = TIM7;
   htim7.Init.Prescaler = 719;
   htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim7.Init.Period = 19970 ;
+  htim7.Init.Period = 4991 ;
   htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
   {
@@ -1127,47 +1379,59 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	//escribir_terminal("\nrecibo valor\n");
 	if (buffer_control_1[0] == 'R') {
 		derecha_mario = 1;
+		;
 	}
 
 	if (buffer_control_1[0] == 'L') {
 		derecha_mario = 0;
+
 	}
 	if (buffer_control_1[0] == 'J' && salta_mario != 1) {
 		salta_mario = 1;
 		velocidad_y_mario = -1.0f;
+		bandera_jugador1=1;
 	}
 	if (buffer_control_1[0] == 'D') {
 		derecha_luigi = 1;
+
 	}
 
 	if (buffer_control_1[0] == 'A') {
 		derecha_luigi = 0;
+
 	}
 	if (buffer_control_1[0] == 'W' && salta_luigi != 1) {
 		salta_luigi = 1;
 		velocidad_y_luigi = -1.0f;
+		bandera_jugador2=1;
 	}
 }
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if (htim->Instance == TIM6) {
 		bandera_recargar_bloques = 1;
+		bandera_recargar_monedas = 1;
 		Estado_bloques_animacion = (Estado_bloques_animacion + 1) % 3;
+		Estado_monedas_animacion = (Estado_monedas_animacion + 1) % 3;
 
-		for (uint8_t i = 0; i < 5; i++) {
-			if (bloque_animando[i]) {
-				contador_animacion_bloque[i]++;
-				if (contador_animacion_bloque[i] >= 3) {
-					bloque_animando[i] = 0;
-					bloque_desactivado[i] = 1;
-					contador_animacion_bloque[i] = 0;
+		for (uint8_t i = 0; i < MAX_BLOQUES_AMARILLOS; i++) {
+					if (bloques_amarillos[i].animando) {
+						bloques_amarillos[i].frame_anim++;
 
-					if (flag_bloque_evento_disparado[i] == 0) {
-						flag_bloque_evento_disparado[i] = 1;
-
+						if (bloques_amarillos[i].frame_anim >= 3) {
+							bloques_amarillos[i].animando = 0;
+							bloques_amarillos[i].evento_disparado = 1;
+							bloques_amarillos[i].frame_anim = 0;
+							// No desactives el bloque, así mantiene su colisión
+						}
 					}
 				}
-			}
-		}
+
+	}
+	if (htim->Instance == TIM7) {
+		bandera_mover_gumba = 1;
+		animacion_gumba = (animacion_gumba + 1) % 2;
+		bandera_jugador2=1;
+		bandera_jugador1=1;
 	}
 }
 
