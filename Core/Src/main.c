@@ -254,8 +254,8 @@ static void Funciones_mario_chiquito(void) {
 		salta_mario = 0;
 		posicion_y_mario = posicion_y_luigi - 19;
 
-		LCD_Sprite(posicion_x_mario, posicion_y_mario - 10, 16, 10, negro, 1, 0, 0, 0);
-		LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 19,
+		//LCD_Sprite(posicion_x_mario, posicion_y_mario - 10, 16, 10, negro, 1, 0, 0, 0);
+		LCD_Sprite(posicion_x_mario, posicion_y_mario-3  , 20, 19,
 		           mario_corriendo_nivel_2, 4, animacion_mario_corriendo,
 		           (derecha_mario == 0 ? 1 : 0), 0);
 	}
@@ -280,6 +280,7 @@ static void Funciones_mario_chiquito(void) {
 				uint8_t flip = (derecha_mario == 0) ? 1 : 0;
 				LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 19,
 				           mario_corriendo_nivel_2, 4, animacion_mario_corriendo, flip, 0);
+				FillRect(posicion_x_mario, posicion_y_mario-4, 3, 3, 0x00);
 			}
 		}
 
@@ -311,7 +312,7 @@ static void Funciones_mario_chiquito(void) {
 
 		// Mostrar sprite de salto
 		if (velocidad_y_mario != 0) {
-			LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 19,
+			LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 20,
 			           mario_saltando_nivel_2, 1, 0, 0, 0);
 		}
 	}
@@ -374,8 +375,8 @@ static void Funciones_mario_grande(void) {
 		salta_mario = 0;
 		posicion_y_mario = posicion_y_luigi - 19;
 
-		LCD_Sprite(posicion_x_mario, posicion_y_mario - 10, 16, 10, negro, 1, 0, 0, 0);
-		LCD_Sprite(posicion_x_mario, posicion_y_mario - 5, 20, 34,
+		//LCD_Sprite(posicion_x_mario, posicion_y_mario - 10, 16, 10, negro, 1, 0, 0, 0);
+		LCD_Sprite(posicion_x_mario, posicion_y_mario -3 , 20, 34,
 		           mario_corriendo_grande_nivel_2, 4,
 		           animacion_mario_corriendo, (derecha_mario == 0 ? 1 : 0), 0);
 	}
@@ -497,9 +498,9 @@ static void Funciones_luigi_chiquito(void) {
 		salta_luigi = 0;
 		posicion_y_luigi = posicion_y_mario - 34;
 
-		LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 10, 16, 10, negro, 1, 0, 0, 0);
-		LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 5, 20, 34,
-		           luigi_corriendo_grande_nivel_2, 4, animacion_luigi_corriendo,
+		//LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 10, 16, 10, negro, 1, 0, 0, 0);
+		LCD_Sprite(posicion_x_luigi, posicion_y_luigi-3  , 20, 34,
+		           luigi_corriendo_nivel_2, 4, animacion_luigi_corriendo,
 		           (derecha_luigi == 0 ? 1 : 0), 0);
 	}
 
@@ -618,8 +619,8 @@ static void Funciones_luigi_grande(void) {
 		salta_luigi = 0;
 		posicion_y_luigi = posicion_y_mario - 34;
 
-		LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 10, 16, 10, negro, 1, 0, 0, 0);
-		LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 5, 20, 34,
+		//LCD_Sprite(posicion_x_luigi, posicion_y_luigi - 10, 16, 10, negro, 1, 0, 0, 0);
+		LCD_Sprite(posicion_x_luigi, posicion_y_luigi-3 , 20, 34,
 		           luigi_corriendo_grande_nivel_2, 4, animacion_luigi_corriendo,
 		           (derecha_luigi == 0 ? 1 : 0), 0);
 	}
@@ -692,19 +693,23 @@ static void Funciones_goombas(void) {
 	static uint8_t contador_animacion_muerte_goomba[MAX_GOOMBAS] = {0};
 	static uint8_t goomba_colisionando[MAX_GOOMBAS] = {0};
 
-	for (uint8_t i = 0; i < MAX_GOOMBAS; i++) {
+	for (uint8_t i = 0; i < num_goombas_activos; i++) {
+
 		if (!goombas[i].activo) {
-			if (contador_animacion_muerte_goomba[i] > 0) {
-				LCD_Sprite(goombas[i].x, goombas[i].y, 18, 18, gumba_animacion, 4, 3, 0, 0);
+			if (contador_animacion_muerte_goomba[i] > 1 && contador_animacion_muerte_goomba[i] < 255) {
+				// Frame de animación especial
+				FillRect(goombas[i].x, goombas[i].y - 4, 18, 18, 0x00);  // Asegúrate que frame 3 sea el correcto
 				contador_animacion_muerte_goomba[i]--;
-			} else if (goombas[i].x != 0 || goombas[i].y != 0) {
-				LCD_Sprite(goombas[i].x, goombas[i].y, 18, 18, gumba_animacion, 4, 4, 0, 0);
+			}  if (contador_animacion_muerte_goomba[i] == 1) {
+				// Frame final aplastado
+				FillRect(goombas[i].x, goombas[i].y , 18, 18, 0x00);  // Asegúrate que frame 4 sea el sprite aplastado
+				contador_animacion_muerte_goomba[i] = 255;
 			}
 			continue;
 		}
 
-		// Mostrar sprite animado
-		LCD_Sprite(goombas[i].x, goombas[i].y, 18, 18, gumba_animacion, 4, animacion_gumba, 0, 0);
+		// Mostrar sprite animado (si está vivo)
+		LCD_Sprite(goombas[i].x, goombas[i].y, 20, 18, gumba_animacion, 2, animacion_gumba, 0, 0);
 
 		// Movimiento
 		goombas[i].x += goombas[i].direccion;
@@ -730,11 +735,11 @@ static void Funciones_goombas(void) {
 			if (jugador_sobre_otro(posicion_x_mario, posicion_y_mario, 20, mario_altura,
 				goombas[i].x, goombas[i].y, 16, 16)) {
 				goombas[i].activo = 0;
-				contador_animacion_muerte_goomba[i] = 3;
+				contador_animacion_muerte_goomba[i] = 3;  // comienza animación
 				velocidad_y_mario = -1.0f;
 				salta_mario = 1;
 			} else {
-				estado_mario --;  // sin importar si ya está en 0
+				estado_mario--;
 			}
 
 			if (!goomba_colisionando[i]) {
@@ -759,7 +764,7 @@ static void Funciones_goombas(void) {
 				velocidad_y_luigi = -1.0f;
 				salta_luigi = 1;
 			} else {
-				estado_luigi --;
+				estado_luigi--;
 			}
 
 			if (!goomba_colisionando[i]) {
@@ -982,7 +987,7 @@ uint8_t jugador_sobre_otro(uint16_t x1, uint16_t y1, uint8_t w1, uint8_t h1,
 		uint16_t x2, uint16_t y2, uint8_t w2, uint8_t h2) {
 	// Verifica si jugador 1 está "encima" del jugador 2
 	if (x1 + w1 >= x2 && x1 <= x2 + w2) {
-		if ((y1 + h1) >= y2 - 1 && (y1 + h1) <= y2 + 6) {
+		if ((y1 + h1) >= y2 - 1 && (y1 + h1) <= y2 +2) {
 			return 1;
 		}
 	}
